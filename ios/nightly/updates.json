@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "component": "ios",
   "track": "nightly",
-  "version": "0.1.6-nightly.20261120.55",
-  "commit": "e3c6ddb24682125365d75b4fa203c964a2ab663a",
-  "publishedAt": "2026-11-20T16:25:43Z",
-  "notesUrl": "https://github.com/davidvanderklay/conduit/releases/tag/ios%2Fv0.1.6-nightly.20261120.55",
+  "version": "0.1.6-nightly.20261125.60",
+  "commit": "ba058be9e35c144c946b17f4fe3fa17dc3d7ff3f",
+  "publishedAt": "2026-11-25T18:00:17Z",
+  "notesUrl": "https://github.com/davidvanderklay/conduit/releases/tag/ios%2Fv0.1.6-nightly.20261125.60",
   "apiLevel": 1,
   "minimumApiLevel": 1
 }
